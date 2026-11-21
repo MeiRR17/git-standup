@@ -18,6 +18,7 @@ Run this project directly from its checkout:
     node bin/git-standup.js --root ~/code --today
     node bin/git-standup.js --root ~/code --days 7 --daily --top 5
     node bin/git-standup.js --root ~/code --days 7 --csv --daily --output activity.csv
+    node bin/git-standup.js --root ~/code --days 7 --csv --require-complete
     node bin/git-standup.js --repo ~/code/project-a --repo ~/code/project-b
     node bin/git-standup.js --root ~/code --since 2026-11-01 --until 2026-11-20
 
@@ -49,6 +50,7 @@ The output file is created only when it does not already exist, protecting previ
 - `--include-merges`: include merge commits (excluded by default).
 - `--json`: print a machine-readable report.
 - `--csv`: output a UTF-8 CSV (BOM + CRLF) of aggregated repository counts, without commit metadata. Cannot be combined with `--json` or `--top`.
+- `--require-complete`: return a nonzero exit code instead of reporting partial results if Git log collection exceeds 2,000 commits per repository or a repository scan fails.
 - `--daily`: include a local-calendar-day table showing commit counts and number of active repositories. In JSON mode adds a `daily` array. In CSV mode provides **repository × local day** counts (maximum 366 days).
 - `--top N`: show only the N newest commit bullets per repository in Markdown (1–2,000), retaining accurate full counts; incompatible with `--json`.
 - `--output PATH`: save a new file rather than print to stdout.
@@ -58,7 +60,7 @@ The output file is created only when it does not already exist, protecting previ
 
 The tool uses Git locally through Node.js child processes. No shell commands are dynamically evaluated. There are no HTTP requests, telemetry, account connections, or dependencies. The report omits commit-author email addresses and absolute repository paths to make it easier to share.
 
-Git log collection includes all locally known refs (`git log --all`), up to 2,000 log entries per repository, and excludes merges unless requested. Workspace auto-discovery scans one directory level, with a maximum of 120 repositories. It does not clone or fetch remote repositories.
+Git log collection includes all locally known refs (`git log --all`), up to 2,000 retained log entries per repository (the scan reads one extra entry to detect truncation); incomplete reports have `complete: false` in JSON and a stderr warning for all CLI formats. `--require-complete` refuses partial totals. Workspaces with more than 120 repositories fail rather than silently skipping extras. Local Git author filtering happens after the bounded log collection, so even 2,000 unrelated-author commits can prevent a complete filtered report. Git log collection includes all locally known refs (`git log --all`), up to 2,000 log entries per repository, and excludes merges unless requested. Workspace auto-discovery scans one directory level, with a maximum of 120 repositories. It does not clone or fetch remote repositories.
 
 **Author filtering:** The default uses the `user.email` configured for each repository. If no email is configured, all authors are included and the report records a warning. Override with `--author` or `--all-authors` when necessary.
 
