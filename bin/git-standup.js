@@ -98,6 +98,9 @@ try {
   } else {
     const report = summarize(opts);
     if (opts.daily) report.daily = dailyBreakdown(report);
+    if (!report.complete && !opts.requireComplete) {
+      process.stderr.write('git-standup: warning: scan incomplete; counts may be partial. Use --require-complete to fail closed.\n');
+    }
     const result = opts.csv ? standupToCsv(report, { daily: Boolean(opts.daily) }) :
       opts.json ? JSON.stringify(report, null, 2) + '\n' :
       renderMarkdown(report, { top: opts.top ?? null });
