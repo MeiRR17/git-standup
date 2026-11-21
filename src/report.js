@@ -30,10 +30,15 @@ export function discoverRepos(root) {
   else {
     const children = readdirSync(folder, { withFileTypes: true });
     for (const child of children) {
-      if (paths.length >= MAX_REPOSITORIES) break;
       if (!child.isDirectory() || child.name.startsWith('.') || child.name === 'node_modules') continue;
       const candidate = join(folder, child.name);
-      if (existsSync(join(candidate, '.git'))) paths.push(candidate);
+      if (existsSync(join(candidate, '.git'))) {
+        // Never silently drop repositories from an aggregate report.
+        if (paths.length >= MAX_REPOSITORIES) {
+          throw new RangeError('More than 120 repositories found; select a smaller workspace or use --repo.');
+        }
+        paths.push(candidate);
+      }
     }
   }
   return paths;
