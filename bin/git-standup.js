@@ -29,6 +29,7 @@ const HELP = [
   'Output:',
   '  --json               Print structured JSON instead of Markdown',
   '  --csv                Export counts-only CSV (no commit messages)',
+  '  --require-complete   Fail if any repository cannot be scanned in full',
   '  --daily              Include commits and active repos per local calendar day',
   '  --top N              Show at most N commits per repo in Markdown (1–2000)',
   '  --output PATH        Save a new file (never overwrite an existing file)',
@@ -61,6 +62,7 @@ function parseOptions(args) {
     else if (flag === '--include-merges') options.includeMerges = true;
     else if (flag === '--json') options.json = true;
     else if (flag === '--csv') options.csv = true;
+    else if (flag === '--require-complete') options.requireComplete = true;
     else if (flag === '--daily') options.daily = true;
     else if (flag === '--top') {
       const raw = take(i++, flag);
