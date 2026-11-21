@@ -1,0 +1,13 @@
+{
+  "name": "@meirr17/git-standup",
+  "version": "0.1.0",
+  "description": "Local Git commit standup summaries across repositories",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "bin": { "git-standup": "./bin/git-standup.js" },
+  "exports": { ".": "./src/report.js" },
+  "files": ["src/", "bin/", "README.md", "LICENSE"],
+  "scripts": {},
+  "keywords": ["git", "standup", "commits", "report", "cli"]
+}
