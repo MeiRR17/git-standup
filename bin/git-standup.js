@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 import { summarize, renderMarkdown } from '../src/report.js';
+import { dailyBreakdown } from '../src/daily.js';
 
 const HELP = [
   'git-standup — summarize recent local commits across repositories',
@@ -26,12 +27,15 @@ const HELP = [
   '',
   'Output:',
   '  --json               Print structured JSON instead of Markdown',
+  '  --daily              Include commits and active repos per local calendar day',
+  '  --top N              Show at most N commits per repo in Markdown (1–2000)',
   '  --output PATH        Save a new file (never overwrite an existing file)',
   '  -h, --help           Show this message',
   '',
   'Examples:',
   '  git-standup --root ~/code',
   '  git-standup --root ~/code --days 7',
+  '  git-standup --root ~/code --days 7 --daily --top 5',
   '  git-standup --repo ~/code/app --repo ~/code/docs --today',
   '  git-standup --root ~/code --since 2026-11-01 --until 2026-11-20 --json',
 ].join('\n');
@@ -53,6 +57,12 @@ function parseOptions(args) {
     else if (flag === '--all-authors') options.allAuthors = true;
     else if (flag === '--include-merges') options.includeMerges = true;
     else if (flag === '--json') options.json = true;
+    else if (flag === '--daily') options.daily = true;
+    else if (flag === '--top') {
+      const raw = take(i++, flag);
+      if (!/^[1-9][0-9]*$/.test(raw) || Number(raw) > 2000) throw new Error('--top must be an integer 1–2000.');
+      options.top = Number(raw);
+    }
     else if (flag === '--output') options.output = take(i++, flag);
     else if (flag === '--today') {
       if (selectRange) throw new Error('Use only one primary date range mode.');
@@ -70,6 +80,7 @@ function parseOptions(args) {
   if (options.author && options.allAuthors) throw new Error('Choose --author or --all-authors, not both.');
   if (options.today && options.until) throw new Error('Cannot combine --today and --until.');
   if (options.root && options.repos.length) throw new Error('Choose --root or explicit --repo entries, not both.');
+  if (options.json && options.top) throw new Error('--top only affects Markdown, not JSON.');
   return options;
 }
 
@@ -79,7 +90,8 @@ try {
     process.stdout.write(HELP + '\n');
   } else {
     const report = summarize(opts);
-    const result = opts.json ? JSON.stringify(report, null, 2) + '\n' : renderMarkdown(report);
+    if (opts.daily) report.daily = dailyBreakdown(report);
+    const result = opts.json ? JSON.stringify(report, null, 2) + '\n' : renderMarkdown(report, { top: opts.top ?? null });
     if (opts.output) {
       writeFileSync(opts.output, result, { encoding: 'utf8', flag: 'wx' });
       process.stderr.write('Saved standup report to ' + opts.output + '\n');
