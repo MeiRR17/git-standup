@@ -101,6 +101,7 @@ export function summarize(options = {}) {
   if (!roots.length) throw new Error('No Git repositories found. Use --root or --repo to specify locations.');
   const range = windowForOptions(options);
   const reports = [], warnings = [];
+  let incomplete = false;
   const observed = new Set();
 
   for (const root of roots) {
@@ -116,10 +117,19 @@ export function summarize(options = {}) {
       const args = [
         'log', '--all', '--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e',
         '--since=' + range.begin.toISOString(), '--before=' + range.end.toISOString(),
-        '--max-count=' + MAX_COMMITS_PER_REPO,
+        // Collect one extra row to detect truncation reliably.
+        '--max-count=' + (MAX_COMMITS_PER_REPO + 1),
       ];
       if (!options.includeMerges) args.push('--no-merges');
-      const logs = parseLog(git(canonical, args));
+      const collected = parseLog(git(canonical, args));
+      const truncated = collected.length > MAX_COMMITS_PER_REPO;
+      const logs = collected.slice(0, MAX_COMMITS_PER_REPO);
+      if (truncated) {
+        incomplete = true;
+        if (options.requireComplete) {
+          throw new RangeError(title + ': more than 2,000 commits in the Git time window. Narrow the date range.');
+        }
+      }
       const commits = logs.filter(commit => {
         if (options.author) {
           const term = options.author.toLowerCase();
@@ -135,10 +145,12 @@ export function summarize(options = {}) {
       }));
       commits.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
       reports.push({ name: title, commits });
-      if (logs.length >= MAX_COMMITS_PER_REPO) {
-        warnings.push(title + ': Git log limit reached; some commits may be omitted.');
+      if (truncated) {
+        warnings.push(title + ': Git log limit exceeded; totals may omit commits.');
       }
     } catch (error) {
+      if (options.requireComplete) throw error;
+      incomplete = true;
       warnings.push(basename(root) + ': ' + error.message);
     }
   }
@@ -151,6 +163,7 @@ export function summarize(options = {}) {
     total,
     repositories: reports,
     warnings,
+    complete: !incomplete,
   };
 }
 
