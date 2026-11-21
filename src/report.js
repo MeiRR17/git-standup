@@ -90,11 +90,18 @@ function configuredEmail(repo) {
 
 function parseLog(output) {
   if (!output) return [];
-  return output.split(END).map(item => item.trim()).filter(Boolean).flatMap(entry => {
+  return output.split(END).map(item => item.trim()).filter(Boolean).map(entry => {
     const fields = entry.split(SEP);
-    if (fields.length !== 6) return [];
+    // A malformed record is a collection failure, not a commit to skip.
+    // Skipping it would corrupt author filters, totals and daily breakdowns.
+    if (fields.length !== 6 || !/^[a-f0-9]{40,64}$/i.test(fields[0])) {
+      throw new Error('Git returned a malformed commit record; totals cannot be trusted.');
+    }
     const [sha, name, email, timestamp, subject, body] = fields;
-    return [{ sha, name, email, timestamp, subject: subject.replace(/[\r\n]+/g, ' ').trim(), body }];
+    if (!Number.isFinite(Date.parse(timestamp))) {
+      throw new Error('Git returned a malformed commit timestamp; totals cannot be trusted.');
+    }
+    return { sha, name, email, timestamp, subject: subject.replace(/[\r\n]+/g, ' ').trim(), body };
   });
 }
 
@@ -185,6 +192,8 @@ export function renderMarkdown(report, { top = null } = {}) {
     '',
     report.total + ' commits across ' + report.active + ' active repositories (' + report.scanned + ' scanned).',
     '',
+    ...(report.complete === false ?
+      ['**Incomplete scan:** totals may omit commits or repositories; rerun with `--require-complete` for a fail-closed report.', ''] : []),
   ];
   if (!report.total) lines.push('No commits found in the selected period.', '');
   if (Array.isArray(report.daily)) lines.push(dailyMarkdown(report.daily));
