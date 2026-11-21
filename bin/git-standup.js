@@ -2,6 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { summarize, renderMarkdown } from '../src/report.js';
 import { dailyBreakdown } from '../src/daily.js';
+import { standupToCsv } from '../src/csv.js';
 
 const HELP = [
   'git-standup — summarize recent local commits across repositories',
@@ -27,6 +28,7 @@ const HELP = [
   '',
   'Output:',
   '  --json               Print structured JSON instead of Markdown',
+  '  --csv                Export counts-only CSV (no commit messages)',
   '  --daily              Include commits and active repos per local calendar day',
   '  --top N              Show at most N commits per repo in Markdown (1–2000)',
   '  --output PATH        Save a new file (never overwrite an existing file)',
@@ -36,6 +38,7 @@ const HELP = [
   '  git-standup --root ~/code',
   '  git-standup --root ~/code --days 7',
   '  git-standup --root ~/code --days 7 --daily --top 5',
+  '  git-standup --root ~/code --days 7 --csv --daily --output activity.csv',
   '  git-standup --repo ~/code/app --repo ~/code/docs --today',
   '  git-standup --root ~/code --since 2026-11-01 --until 2026-11-20 --json',
 ].join('\n');
@@ -57,6 +60,7 @@ function parseOptions(args) {
     else if (flag === '--all-authors') options.allAuthors = true;
     else if (flag === '--include-merges') options.includeMerges = true;
     else if (flag === '--json') options.json = true;
+    else if (flag === '--csv') options.csv = true;
     else if (flag === '--daily') options.daily = true;
     else if (flag === '--top') {
       const raw = take(i++, flag);
@@ -80,7 +84,8 @@ function parseOptions(args) {
   if (options.author && options.allAuthors) throw new Error('Choose --author or --all-authors, not both.');
   if (options.today && options.until) throw new Error('Cannot combine --today and --until.');
   if (options.root && options.repos.length) throw new Error('Choose --root or explicit --repo entries, not both.');
-  if (options.json && options.top) throw new Error('--top only affects Markdown, not JSON.');
+  if (options.json && options.csv) throw new Error('Choose --json or --csv, not both.');
+  if ((options.json || options.csv) && options.top) throw new Error('--top only affects Markdown.');
   return options;
 }
 
@@ -91,7 +96,9 @@ try {
   } else {
     const report = summarize(opts);
     if (opts.daily) report.daily = dailyBreakdown(report);
-    const result = opts.json ? JSON.stringify(report, null, 2) + '\n' : renderMarkdown(report, { top: opts.top ?? null });
+    const result = opts.csv ? standupToCsv(report, { daily: Boolean(opts.daily) }) :
+      opts.json ? JSON.stringify(report, null, 2) + '\n' :
+      renderMarkdown(report, { top: opts.top ?? null });
     if (opts.output) {
       writeFileSync(opts.output, result, { encoding: 'utf8', flag: 'wx' });
       process.stderr.write('Saved standup report to ' + opts.output + '\n');
