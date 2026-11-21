@@ -130,16 +130,15 @@ export function summarize(options = {}) {
         sha: commit.sha,
         subject: commit.subject,
         author: commit.name,
-        email: commit.email,
         timestamp: commit.timestamp,
       }));
       commits.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-      reports.push({ name: title, path: canonical, commits });
+      reports.push({ name: title, commits });
       if (logs.length >= MAX_COMMITS_PER_REPO) {
         warnings.push(title + ': Git log limit reached; some commits may be omitted.');
       }
     } catch (error) {
-      warnings.push(root + ': ' + error.message);
+      warnings.push(basename(root) + ': ' + error.message);
     }
   }
   reports.sort((a, b) => b.commits.length - a.commits.length || a.name.localeCompare(b.name));
