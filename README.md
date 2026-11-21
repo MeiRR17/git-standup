@@ -16,6 +16,7 @@ Run this project directly from its checkout:
     node bin/git-standup.js --root ~/code
     node bin/git-standup.js --root ~/code --days 7
     node bin/git-standup.js --root ~/code --today
+    node bin/git-standup.js --root ~/code --days 7 --daily --top 5
     node bin/git-standup.js --repo ~/code/project-a --repo ~/code/project-b
     node bin/git-standup.js --root ~/code --since 2026-11-01 --until 2026-11-20
 
@@ -30,7 +31,7 @@ The Markdown report groups commits by repository and includes subject, timestamp
     node bin/git-standup.js --root ~/code --json
     node bin/git-standup.js --root ~/code --days 7 --output standup.md
 
-The output file is created only when it does not already exist, protecting previous reports from accidental overwrites.
+The output file is created only when it does not already exist, protecting previous reports from accidental overwrites. **Daily timeline** includes even days without commits; the optional top-N Markdown view only limits printed bullets, not the underlying total and per-day metrics.
 
 ## Options
 
@@ -44,6 +45,8 @@ The output file is created only when it does not already exist, protecting previ
 - `--all-authors`: include every contributor; otherwise the CLI matches each repository's configured `user.email`.
 - `--include-merges`: include merge commits (excluded by default).
 - `--json`: print a machine-readable report.
+- `--daily`: include a local-calendar-day table showing commit counts and number of active repositories. In JSON mode adds a `daily` array.
+- `--top N`: show only the N newest commit bullets per repository in Markdown (1–2,000), retaining accurate full counts; incompatible with `--json`.
 - `--output PATH`: save a new file rather than print to stdout.
 - `-h`, `--help`: display usage.
 
@@ -62,6 +65,7 @@ This is a development implementation; automated tests were deliberately deferred
 ## Source
 
 - `src/report.js` — local repository discovery, commit collection, date windows and report generation
+- `src/daily.js` — pure local-day aggregation and Markdown activity timeline
 - `bin/git-standup.js` — CLI argument parser, help and Markdown/JSON output
 - `package.json` — ESM and CLI metadata
 - `LICENSE` — MIT
