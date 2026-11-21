@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { dailyMarkdown } from './daily.js';
 
 const MAX_REPOSITORIES = 120;
 const MAX_COMMITS_PER_REPO = 2000;
@@ -157,7 +158,10 @@ function escapeMarkdown(value) {
   return value.replace(/([\\\x60*_{}[\]()#+.!|>~-])/g, '\\$1');
 }
 /** Render a stable standup note sorted by repository and commit timestamp. */
-export function renderMarkdown(report) {
+export function renderMarkdown(report, { top = null } = {}) {
+  if (top !== null && (!Number.isInteger(top) || top < 1 || top > 2000)) {
+    throw new RangeError('Top must be an integer between 1 and 2,000.');
+  }
   const lines = [
     '# Git standup — ' + report.range.since + (report.range.until === report.range.since ? '' : ' to ' + report.range.until),
     '',
@@ -165,12 +169,16 @@ export function renderMarkdown(report) {
     '',
   ];
   if (!report.total) lines.push('No commits found in the selected period.', '');
+  if (Array.isArray(report.daily)) lines.push(dailyMarkdown(report.daily));
   for (const repo of report.repositories) {
     if (!repo.commits.length) continue;
     lines.push('## ' + escapeMarkdown(repo.name) + ' (' + repo.commits.length + ')', '');
-    for (const commit of repo.commits) {
+    for (const commit of (top === null ? repo.commits : repo.commits.slice(0, top))) {
       const time = commit.timestamp.slice(0, 16).replace('T', ' ');
       lines.push('- ' + escapeMarkdown(commit.subject) + ' — ' + time + ' (' + commit.sha.slice(0, 7) + ')');
+    }
+    if (top !== null && repo.commits.length > top) {
+      lines.push('- ... ' + (repo.commits.length - top) + ' additional commits omitted from display (full counts preserved).');
     }
     lines.push('');
   }
