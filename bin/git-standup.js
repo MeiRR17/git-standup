@@ -32,6 +32,7 @@ const HELP = [
   '  --csv                Export complete counts-only CSV (fails on partial scans)',
   '  --counts-only        Export complete counts-only JSON, without commit metadata',
   '  --by-type            With --counts-only, group commits by Conventional Commit type',
+  '                       Combine with --daily for per-day counts by type',
   '  --require-complete   Fail if any repository cannot be scanned in full',
   '  --daily              Include commits and active repos per local calendar day',
   '  --top N              Show at most N commits per repo in Markdown (1–2000)',
@@ -45,6 +46,7 @@ const HELP = [
   '  git-standup --root ~/code --days 7 --csv --daily --output activity.csv',
   '  git-standup --root ~/code --days 7 --counts-only --daily',
   '  git-standup --root ~/code --days 7 --counts-only --by-type',
+  '  git-standup --root ~/code --days 7 --counts-only --by-type --daily',
   '  git-standup --repo ~/code/app --repo ~/code/docs --today',
   '  git-standup --root ~/code --since 2026-11-01 --until 2026-11-20 --json',
 ].join('\n');

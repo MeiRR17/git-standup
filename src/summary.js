@@ -10,15 +10,19 @@ const COMMIT_TYPES = Object.freeze([
 const recognized = new Set(COMMIT_TYPES.slice(0, -1));
 const header = /^([a-z][a-z0-9-]*)(?:\(([^()\r\n]{1,80})\))?(!)?:\s*(\S.*)$/i;
 
+function commitType(subject) {
+  const matched = header.exec(subject.trim());
+  const type = matched?.[1]?.toLowerCase();
+  return recognized.has(type) ? type : 'other';
+}
+
 function typeCounts(commits) {
   const counts = Object.fromEntries(COMMIT_TYPES.map(type => [type, 0]));
   for (const commit of commits) {
     if (!commit || typeof commit.subject !== 'string') {
       throw new TypeError('Commit type totals require valid local Git subject metadata.');
     }
-    const matched = header.exec(commit.subject.trim());
-    const type = matched?.[1]?.toLowerCase();
-    counts[recognized.has(type) ? type : 'other']++;
+    counts[commitType(commit.subject)]++;
   }
   return counts;
 }
@@ -89,6 +93,39 @@ export function countsOnlySummary(report, { byType = false } = {}) {
       }
       return { date: day.date, commits: day.commits, activeRepositories: day.activeRepositories };
     });
+    if (byType) {
+      // No per-commit metadata leaves this projection. Reuse the same local
+      // civil-day semantics as dailyBreakdown(): UTC slicing is incorrect for
+      // commits near midnight and on DST transition dates.
+      const dailyLookup = new Map(result.daily.map(day => [
+        day.date, Object.fromEntries(COMMIT_TYPES.map(type => [type, 0])),
+      ]));
+      if (dailyLookup.size !== result.daily.length) {
+        throw new TypeError('Duplicate daily dates in the report.');
+      }
+      for (const repo of report.repositories) {
+        for (const commit of repo.commits) {
+          if (!commit || typeof commit.subject !== 'string') {
+            throw new TypeError('Missing commit type metadata.');
+          }
+          const time = new Date(commit.timestamp);
+          if (!Number.isFinite(time.getTime())) {
+            throw new TypeError('Invalid commit timestamp in daily type breakdown.');
+          }
+          const key = [time.getFullYear(), String(time.getMonth() + 1).padStart(2, '0'),
+            String(time.getDate()).padStart(2, '0')].join('-');
+          const bucket = dailyLookup.get(key);
+          if (bucket) bucket[commitType(commit.subject)]++;
+        }
+      }
+      result.daily = result.daily.map(day => {
+        const types = dailyLookup.get(day.date);
+        if (Object.values(types).reduce((sum, count) => sum + count, 0) !== day.commits) {
+          throw new TypeError('Daily commit-type totals do not reconcile with daily counts.');
+        }
+        return { ...day, byType: types };
+      });
+    }
   }
   return result;
 }
