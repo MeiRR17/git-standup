@@ -31,6 +31,7 @@ const HELP = [
   '  --json               Print structured JSON instead of Markdown',
   '  --csv                Export complete counts-only CSV (fails on partial scans)',
   '  --counts-only        Export complete counts-only JSON, without commit metadata',
+  '  --by-type            With --counts-only, group commits by Conventional Commit type',
   '  --require-complete   Fail if any repository cannot be scanned in full',
   '  --daily              Include commits and active repos per local calendar day',
   '  --top N              Show at most N commits per repo in Markdown (1–2000)',
@@ -43,6 +44,7 @@ const HELP = [
   '  git-standup --root ~/code --days 7 --daily --top 5',
   '  git-standup --root ~/code --days 7 --csv --daily --output activity.csv',
   '  git-standup --root ~/code --days 7 --counts-only --daily',
+  '  git-standup --root ~/code --days 7 --counts-only --by-type',
   '  git-standup --repo ~/code/app --repo ~/code/docs --today',
   '  git-standup --root ~/code --since 2026-11-01 --until 2026-11-20 --json',
 ].join('\n');
@@ -66,6 +68,7 @@ function parseOptions(args) {
     else if (flag === '--json') options.json = true;
     else if (flag === '--csv') options.csv = true;
     else if (flag === '--counts-only') options.countsOnly = true;
+    else if (flag === '--by-type') options.byType = true;
     else if (flag === '--require-complete') options.requireComplete = true;
     else if (flag === '--daily') options.daily = true;
     else if (flag === '--top') {
@@ -94,6 +97,9 @@ function parseOptions(args) {
       Number(Boolean(options.countsOnly)) > 1) {
     throw new Error('Choose only one of --json, --csv, or --counts-only.');
   }
+  if (options.byType && !options.countsOnly) {
+    throw new Error('--by-type requires --counts-only.');
+  }
   if ((options.json || options.csv || options.countsOnly) && options.top) {
     throw new Error('--top only affects Markdown.');
   }
@@ -111,7 +117,7 @@ try {
       process.stderr.write('git-standup: warning: scan incomplete; counts may be partial. Use --require-complete to fail closed.\n');
     }
     const result = opts.csv ? standupToCsv(report, { daily: Boolean(opts.daily) }) :
-      opts.countsOnly ? JSON.stringify(countsOnlySummary(report), null, 2) + '\n' :
+      opts.countsOnly ? JSON.stringify(countsOnlySummary(report, { byType: Boolean(opts.byType) }), null, 2) + '\n' :
       opts.json ? JSON.stringify(report, null, 2) + '\n' :
       renderMarkdown(report, { top: opts.top ?? null });
     if (opts.output) {

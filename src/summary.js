@@ -3,7 +3,33 @@
  * Intentionally project only approved scalar fields: no subject, SHA, author,
  * author email, absolute path, Git remote, warning text or commit bodies.
  */
-export function countsOnlySummary(report) {
+const COMMIT_TYPES = Object.freeze([
+  'feat', 'fix', 'perf', 'refactor', 'docs', 'build', 'ci',
+  'test', 'chore', 'style', 'revert', 'other',
+]);
+const recognized = new Set(COMMIT_TYPES.slice(0, -1));
+const header = /^([a-z][a-z0-9-]*)(?:\(([^()\r\n]{1,80})\))?(!)?:\s*(\S.*)$/i;
+
+function typeCounts(commits) {
+  const counts = Object.fromEntries(COMMIT_TYPES.map(type => [type, 0]));
+  for (const commit of commits) {
+    if (!commit || typeof commit.subject !== 'string') {
+      throw new TypeError('Commit type totals require valid local Git subject metadata.');
+    }
+    const matched = header.exec(commit.subject.trim());
+    const type = matched?.[1]?.toLowerCase();
+    counts[recognized.has(type) ? type : 'other']++;
+  }
+  return counts;
+}
+
+/**
+ * Optional Conventional Commit group counts for the same complete scan.
+ * Unknown/malformed headers fall into "other"; no raw subjects leave memory.
+ * The result is a descriptive grouping, not a Conventional Commit compliance audit.
+ */
+export function countsOnlySummary(report, { byType = false } = {}) {
+  if (typeof byType !== 'boolean') throw new TypeError('byType must be boolean.');
   if (!report || report.complete !== true || !report.range ||
       !Array.isArray(report.repositories) || report.repositories.length > 120) {
     throw new Error('Counts-only JSON requires a complete Git scan of at most 120 repositories.');
@@ -19,7 +45,11 @@ export function countsOnlySummary(report) {
         !Array.isArray(repo.commits) || repo.commits.length > 2000) {
       throw new TypeError('Report contains an invalid repository summary.');
     }
-    return { name: repo.name, commits: repo.commits.length };
+    return {
+      name: repo.name,
+      commits: repo.commits.length,
+      ...(byType ? { byType: typeCounts(repo.commits) } : {}),
+    };
   });
   const total = repositories.reduce((sum, repo) => sum + repo.commits, 0);
   const active = repositories.filter(repo => repo.commits > 0).length;
@@ -35,8 +65,16 @@ export function countsOnlySummary(report) {
     active,
     total,
     repositories,
-    advisory: 'Repository labels and activity patterns may still be sensitive. No commit details are included.',
+    advisory: 'Repository labels, grouped commit types and activity patterns may still be sensitive. No commit subjects or other commit details are included.',
   };
+  if (byType) {
+    const counts = Object.fromEntries(COMMIT_TYPES.map(type => [type, 0]));
+    for (const repo of repositories) {
+      for (const type of COMMIT_TYPES) counts[type] += repo.byType[type];
+    }
+    result.byType = counts;
+    result.typeAdvisory = 'Types are inferred from recognized Conventional Commit subject prefixes. Nonconventional or unknown types count as other; no message contents are exported.';
+  }
   if (report.daily !== undefined) {
     if (!Array.isArray(report.daily) || report.daily.length > 366) {
       throw new TypeError('Invalid daily breakdown.');
