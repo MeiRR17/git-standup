@@ -30,7 +30,7 @@ If you run it without options, it searches the current working directory and its
 
 The Markdown report groups commits by repository and includes subject, timestamp and short SHA. The JSON format provides the same structured information:
 
-**CSV mode** is designed for safer sharing and spreadsheet inspection. `--csv` exports each repository name and its count of matching commits, without commit subjects, hashes, author emails or absolute paths. With `--daily`, the CSV contains one row for every repository and calendar day in the selected period, including zero-activity days. CSV cells containing potentially executable spreadsheet formulas are escaped. Repository names are still metadata that may be sensitive.
+**CSV mode** is designed for safer sharing and spreadsheet inspection. CSV export now **fails closed** if a repository scan is incomplete or the report is not explicitly marked complete; no partial CSV output file is written. Narrow the date range, resolve inaccessible repositories, and retry when this happens. `--csv` exports each repository name and its count of matching commits, without commit subjects, hashes, author emails or absolute paths. With `--daily`, the CSV contains one row for every repository and calendar day in the selected period, including zero-activity days. CSV cells containing potentially executable spreadsheet formulas are escaped. Repository names are still metadata that may be sensitive.
 
     node bin/git-standup.js --root ~/code --json
     node bin/git-standup.js --root ~/code --days 7 --output standup.md
@@ -49,7 +49,7 @@ The output file is created only when it does not already exist, protecting previ
 - `--all-authors`: include every contributor; otherwise the CLI matches each repository's configured `user.email`.
 - `--include-merges`: include merge commits (excluded by default).
 - `--json`: print a machine-readable report.
-- `--csv`: output a UTF-8 CSV (BOM + CRLF) of aggregated repository counts, without commit metadata. Cannot be combined with `--json` or `--top`.
+- `--csv`: output a UTF-8 CSV (BOM + CRLF) of aggregated repository counts, without commit metadata. Refuses incomplete scan results; does not produce misleading partial spreadsheets. Cannot be combined with `--json` or `--top`.
 - `--require-complete`: return a nonzero exit code instead of reporting partial results if Git log collection exceeds 2,000 commits per repository or a repository scan fails.
 - `--daily`: include a local-calendar-day table showing commit counts and number of active repositories. In JSON mode adds a `daily` array. In CSV mode provides **repository × local day** counts (maximum 366 days).
 - `--top N`: show only the N newest commit bullets per repository in Markdown (1–2,000), retaining accurate full counts; incompatible with `--json`.

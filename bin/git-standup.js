@@ -28,7 +28,7 @@ const HELP = [
   '',
   'Output:',
   '  --json               Print structured JSON instead of Markdown',
-  '  --csv                Export counts-only CSV (no commit messages)',
+  '  --csv                Export complete counts-only CSV (fails on partial scans)',
   '  --require-complete   Fail if any repository cannot be scanned in full',
   '  --daily              Include commits and active repos per local calendar day',
   '  --top N              Show at most N commits per repo in Markdown (1–2000)',

@@ -63,6 +63,11 @@ function validReport(report) {
  */
 export function standupToCsv(report, { daily = false } = {}) {
   validReport(report);
+  // CSV has no safe place for a top-level partial-results warning. Refuse
+  // incomplete or unverified reports rather than publish misleading totals.
+  if (report.complete !== true) {
+    throw new Error('CSV export requires a complete Git scan. Narrow the date range or repair scan errors.');
+  }
   if (typeof daily !== 'boolean') throw new TypeError('daily must be boolean.');
   const lines = [];
   if (!daily) {
