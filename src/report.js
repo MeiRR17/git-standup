@@ -166,6 +166,27 @@ export function summarize(options = {}) {
       warnings.push(basename(root) + ': ' + error.message);
     }
   }
+  // Multiple Git repositories may share a directory basename. Preserve a
+  // unique, privacy-safe display name without exposing parent directory paths.
+  // Distinguish them before building daily and CSV summaries, so those exports
+  // cannot silently merge unrelated repositories by name.
+  const reserved = new Set(reports.map(repo => repo.name));
+  const nextOrdinal = new Map();
+  for (const report of reports) {
+    const base = report.name;
+    const next = nextOrdinal.get(base) ?? 1;
+    if (next === 1) {
+      nextOrdinal.set(base, 2);
+      continue;
+    }
+    let suffix = next, candidate;
+    do {
+      candidate = base + ' [' + suffix++ + ']';
+    } while (reserved.has(candidate));
+    report.name = candidate;
+    reserved.add(candidate);
+    nextOrdinal.set(base, suffix);
+  }
   reports.sort((a, b) => b.commits.length - a.commits.length || a.name.localeCompare(b.name));
   const total = reports.reduce((sum, repo) => sum + repo.commits.length, 0);
   return {

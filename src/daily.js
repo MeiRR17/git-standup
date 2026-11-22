@@ -42,13 +42,15 @@ export function dailyBreakdown(report) {
     days.push(entry);
     lookup.set(entry.date, { entry, seen: new Set() });
   }
-  for (const repo of report.repositories) {
+  // Use the repository's position, not its display name: separate repositories
+  // can legitimately share a basename in user-supplied programmatic reports.
+  for (const [repoIndex, repo] of report.repositories.entries()) {
     for (const commit of repo.commits) {
       const day = localDay(commit.timestamp);
       const value = lookup.get(day);
       if (!value) continue;
       value.entry.commits++;
-      value.seen.add(repo.name);
+      value.seen.add(repoIndex);
     }
   }
   for (const value of lookup.values()) value.entry.activeRepositories = value.seen.size;

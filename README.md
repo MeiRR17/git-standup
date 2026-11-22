@@ -28,7 +28,7 @@ If you run it without options, it searches the current working directory and its
 
 ## Output
 
-The Markdown report groups commits by repository and includes subject, timestamp and short SHA. The JSON format provides the same structured information:
+The Markdown report groups commits by repository and includes subject, timestamp and short SHA. The JSON format provides the same structured information. If different repositories share the same folder name, display labels are disambiguated with numeric suffixes such as `app` and `app [2]`, without exposing parent directory paths. The daily active-repository counts treat them as distinct repositories:
 
 **CSV mode** is designed for safer sharing and spreadsheet inspection. CSV export now **fails closed** if a repository scan is incomplete or the report is not explicitly marked complete; no partial CSV output file is written. Narrow the date range, resolve inaccessible repositories, and retry when this happens. `--csv` exports each repository name and its count of matching commits, without commit subjects, hashes, author emails or absolute paths. With `--daily`, the CSV contains one row for every repository and calendar day in the selected period, including zero-activity days. CSV cells containing potentially executable spreadsheet formulas are escaped. Repository names are still metadata that may be sensitive.
 
