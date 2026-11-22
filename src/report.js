@@ -1,0 +1,266 @@
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { dailyMarkdown } from './daily.js';
+
+const MAX_REPOSITORIES = 120;
+const MAX_WORKSPACE_DIRECTORIES = 10_000;
+const MAX_COMMITS_PER_REPO = 2000;
+const SEP = '\x1f';
+const END = '\x1e';
+
+function git(cwd, args) {
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8', windowsHide: true, maxBuffer: 12 * 1024 * 1024,
+  });
+  if (result.error) throw new Error('Could not execute Git: ' + result.error.message);
+  if (result.status !== 0) {
+    throw new Error((result.stderr || '').trim() || 'Git exited with code ' + result.status);
+  }
+  return result.stdout.trim();
+}
+
+/** Discover local Git repositories up to depth levels below a workspace. */
+export function discoverRepos(root, { depth = 1 } = {}) {
+  if (!Number.isInteger(depth) || depth < 0 || depth > 8) {
+    throw new RangeError('Workspace depth must be an integer from 0 to 8.');
+  }
+  const folder = resolve(root);
+  if (!existsSync(folder) || !statSync(folder).isDirectory()) {
+    throw new Error('Workspace directory does not exist: ' + folder);
+  }
+  // Breadth-first traversal makes the depth cap predictable. Directory
+  // entries are sorted, so repository selection does not depend on the
+  // filesystem's enumeration order.
+  const queue = [{ directory: folder, level: 0 }];
+  const paths = [];
+  for (let index = 0; index < queue.length; index++) {
+    const { directory, level } = queue[index];
+    if (existsSync(join(directory, '.git'))) {
+      // A worktree's .git may be a file. Never walk inside a repository:
+      // nested submodules must be requested explicitly with --repo.
+      if (paths.length >= MAX_REPOSITORIES) {
+        throw new RangeError('More than 120 repositories found; select a smaller workspace or use --repo.');
+      }
+      paths.push(directory);
+      continue;
+    }
+    if (level >= depth) continue;
+    const children = readdirSync(directory, { withFileTypes: true })
+      .filter(child => child.isDirectory() && !child.name.startsWith('.') && child.name !== 'node_modules')
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const child of children) {
+      // Dirent.isDirectory() excludes symbolic links: no accidental traversal
+      // outside the workspace and no symlink cycles. Fail closed on huge trees.
+      if (queue.length >= MAX_WORKSPACE_DIRECTORIES) {
+        throw new RangeError('More than 10,000 workspace directories found; reduce --depth or use --repo.');
+      }
+      queue.push({ directory: join(directory, child.name), level: level + 1 });
+    }
+  }
+  return paths;
+}
+
+function localDay(date) {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
+function parseDay(input) {
+  if (typeof input !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    throw new Error('Use YYYY-MM-DD for dates.');
+  }
+  const [y, m, d] = input.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) {
+    throw new Error('Invalid calendar date: ' + input);
+  }
+  return date;
+}
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+/** Convert inclusive local-calendar dates to exclusive timestamp boundaries. */
+export function windowForOptions(options, now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let begin, end;
+  if (options.since) {
+    begin = parseDay(options.since);
+    end = options.until ? addDays(parseDay(options.until), 1) : addDays(today, 1);
+  } else if (options.today) {
+    begin = today; end = addDays(today, 1);
+  } else {
+    const days = Number(options.days ?? 1);
+    if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Days must be 1–365.');
+    end = options.until ? addDays(parseDay(options.until), 1) : today;
+    begin = addDays(end, -days);
+  }
+  if (options.until && !options.since && options.today) throw new Error('Cannot combine --today with --until.');
+  if (begin >= end) throw new Error('Start date must not exceed the end date.');
+  return { begin, end, firstDay: localDay(begin), lastDay: localDay(addDays(end, -1)) };
+}
+
+function configuredEmail(repo) {
+  try { return git(repo, ['config', '--get', 'user.email']).trim().toLowerCase(); }
+  catch { return ''; }
+}
+
+function parseLog(output) {
+  if (!output) return [];
+  return output.split(END).map(item => item.trim()).filter(Boolean).map(entry => {
+    const fields = entry.split(SEP);
+    // A malformed record is a collection failure, not a commit to skip.
+    // Skipping it would corrupt author filters, totals and daily breakdowns.
+    if (fields.length !== 6 || !/^[a-f0-9]{40,64}$/i.test(fields[0])) {
+      throw new Error('Git returned a malformed commit record; totals cannot be trusted.');
+    }
+    const [sha, name, email, timestamp, subject, body] = fields;
+    if (!Number.isFinite(Date.parse(timestamp))) {
+      throw new Error('Git returned a malformed commit timestamp; totals cannot be trusted.');
+    }
+    return { sha, name, email, timestamp, subject: subject.replace(/[\r\n]+/g, ' ').trim(), body };
+  });
+}
+
+/** Collect local Git commit metadata; no shell evaluation or network calls. */
+export function summarize(options = {}) {
+  const requested = options.repos?.length ? options.repos.map(x => resolve(x)) : discoverRepos(options.root ?? process.cwd(), { depth: options.depth ?? 1 });
+  const roots = [...new Set(requested)];
+  if (roots.length > MAX_REPOSITORIES) throw new Error('At most 120 repositories can be scanned.');
+  if (!roots.length) throw new Error('No Git repositories found. Use --root or --repo to specify locations.');
+  const range = windowForOptions(options);
+  const reports = [], warnings = [];
+  let incomplete = false;
+  const observed = new Set();
+
+  for (const root of roots) {
+    try {
+      const canonical = git(root, ['rev-parse', '--show-toplevel']);
+      if (observed.has(canonical)) continue;
+      observed.add(canonical);
+      const title = basename(canonical);
+      const authorEmail = options.allAuthors || options.author ? '' : configuredEmail(canonical);
+      if (!authorEmail && !options.allAuthors && !options.author) {
+        warnings.push(title + ': no configured Git email; all authors included.');
+      }
+      const args = [
+        // --since/--before use Git commit (committer) time, not the author
+        // timestamp. Emit committer time as well so date buckets, sorting
+        // and the exact Git-selected window describe the same instants.
+        'log', '--all', '--format=%H%x1f%an%x1f%ae%x1f%cI%x1f%s%x1f%b%x1e',
+        '--since=' + range.begin.toISOString(), '--before=' + range.end.toISOString(),
+        // Collect one extra row to detect truncation reliably.
+        '--max-count=' + (MAX_COMMITS_PER_REPO + 1),
+      ];
+      if (!options.includeMerges) args.push('--no-merges');
+      const collected = parseLog(git(canonical, args));
+      const truncated = collected.length > MAX_COMMITS_PER_REPO;
+      const logs = collected.slice(0, MAX_COMMITS_PER_REPO);
+      if (truncated) {
+        incomplete = true;
+        if (options.requireComplete) {
+          throw new RangeError(title + ': more than 2,000 commits in the Git time window. Narrow the date range.');
+        }
+      }
+      const commits = logs.filter(commit => {
+        if (options.author) {
+          const term = options.author.toLowerCase();
+          return (commit.name + ' ' + commit.email).toLowerCase().includes(term);
+        }
+        if (authorEmail) return commit.email.toLowerCase() === authorEmail;
+        return true;
+      }).map(commit => ({
+        sha: commit.sha,
+        subject: commit.subject,
+        author: commit.name,
+        timestamp: commit.timestamp,
+      }));
+      // ISO 8601 strings with different UTC offsets are NOT lexically
+      // ordered by actual time. Use epoch milliseconds, and stable SHAs
+      // for commits with the same timestamp.
+      commits.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) ||
+        a.sha.localeCompare(b.sha));
+      reports.push({ name: title, commits });
+      if (truncated) {
+        warnings.push(title + ': Git log limit exceeded; totals may omit commits.');
+      }
+    } catch (error) {
+      if (options.requireComplete) throw error;
+      incomplete = true;
+      warnings.push(basename(root) + ': ' + error.message);
+    }
+  }
+  // Multiple Git repositories may share a directory basename. Preserve a
+  // unique, privacy-safe display name without exposing parent directory paths.
+  // Distinguish them before building daily and CSV summaries, so those exports
+  // cannot silently merge unrelated repositories by name.
+  const reserved = new Set(reports.map(repo => repo.name));
+  const nextOrdinal = new Map();
+  for (const report of reports) {
+    const base = report.name;
+    const next = nextOrdinal.get(base) ?? 1;
+    if (next === 1) {
+      nextOrdinal.set(base, 2);
+      continue;
+    }
+    let suffix = next, candidate;
+    do {
+      candidate = base + ' [' + suffix++ + ']';
+    } while (reserved.has(candidate));
+    report.name = candidate;
+    reserved.add(candidate);
+    nextOrdinal.set(base, suffix);
+  }
+  reports.sort((a, b) => b.commits.length - a.commits.length || a.name.localeCompare(b.name));
+  const total = reports.reduce((sum, repo) => sum + repo.commits.length, 0);
+  return {
+    range: { since: range.firstDay, until: range.lastDay },
+    scanned: reports.length,
+    active: reports.filter(repo => repo.commits.length > 0).length,
+    total,
+    repositories: reports,
+    warnings,
+    complete: !incomplete,
+  };
+}
+
+function escapeMarkdown(value) {
+  return value.replace(/([\\\x60*_{}[\]()#+.!|>~-])/g, '\\$1');
+}
+/** Render a stable standup note sorted by repository and commit timestamp. */
+export function renderMarkdown(report, { top = null } = {}) {
+  if (top !== null && (!Number.isInteger(top) || top < 1 || top > 2000)) {
+    throw new RangeError('Top must be an integer between 1 and 2,000.');
+  }
+  const lines = [
+    '# Git standup — ' + report.range.since + (report.range.until === report.range.since ? '' : ' to ' + report.range.until),
+    '',
+    report.total + ' commits across ' + report.active + ' active repositories (' + report.scanned + ' scanned).',
+    '',
+    ...(report.complete === false ?
+      ['**Incomplete scan:** totals may omit commits or repositories; rerun with `--require-complete` for a fail-closed report.', ''] : []),
+  ];
+  if (!report.total) lines.push('No commits found in the selected period.', '');
+  if (Array.isArray(report.daily)) lines.push(dailyMarkdown(report.daily));
+  for (const repo of report.repositories) {
+    if (!repo.commits.length) continue;
+    lines.push('## ' + escapeMarkdown(repo.name) + ' (' + repo.commits.length + ')', '');
+    for (const commit of (top === null ? repo.commits : repo.commits.slice(0, top))) {
+      // Retain the committer's explicit UTC offset in Markdown so this
+      // displayed wall time is not mistaken for the viewer's local zone.
+      const time = commit.timestamp.slice(0, 16).replace('T', ' ') +
+        ' ' + commit.timestamp.slice(19);
+      lines.push('- ' + escapeMarkdown(commit.subject) + ' — ' + time + ' (' + commit.sha.slice(0, 7) + ')');
+    }
+    if (top !== null && repo.commits.length > top) {
+      lines.push('- ... ' + (repo.commits.length - top) + ' additional commits omitted from display (full counts preserved).');
+    }
+    lines.push('');
+  }
+  if (report.warnings.length) {
+    lines.push('## Notes', '');
+    for (const warning of report.warnings) lines.push('- ' + escapeMarkdown(warning));
+    lines.push('');
+  }
+  return lines.join('\n').trimEnd() + '\n';
+}
