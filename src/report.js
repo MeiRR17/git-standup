@@ -127,7 +127,10 @@ export function summarize(options = {}) {
         warnings.push(title + ': no configured Git email; all authors included.');
       }
       const args = [
-        'log', '--all', '--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1e',
+        // --since/--before use Git commit (committer) time, not the author
+        // timestamp. Emit committer time as well so date buckets, sorting
+        // and the exact Git-selected window describe the same instants.
+        'log', '--all', '--format=%H%x1f%an%x1f%ae%x1f%cI%x1f%s%x1f%b%x1e',
         '--since=' + range.begin.toISOString(), '--before=' + range.end.toISOString(),
         // Collect one extra row to detect truncation reliably.
         '--max-count=' + (MAX_COMMITS_PER_REPO + 1),
@@ -155,7 +158,11 @@ export function summarize(options = {}) {
         author: commit.name,
         timestamp: commit.timestamp,
       }));
-      commits.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      // ISO 8601 strings with different UTC offsets are NOT lexically
+      // ordered by actual time. Use epoch milliseconds, and stable SHAs
+      // for commits with the same timestamp.
+      commits.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) ||
+        a.sha.localeCompare(b.sha));
       reports.push({ name: title, commits });
       if (truncated) {
         warnings.push(title + ': Git log limit exceeded; totals may omit commits.');
@@ -222,7 +229,10 @@ export function renderMarkdown(report, { top = null } = {}) {
     if (!repo.commits.length) continue;
     lines.push('## ' + escapeMarkdown(repo.name) + ' (' + repo.commits.length + ')', '');
     for (const commit of (top === null ? repo.commits : repo.commits.slice(0, top))) {
-      const time = commit.timestamp.slice(0, 16).replace('T', ' ');
+      // Retain the committer's explicit UTC offset in Markdown so this
+      // displayed wall time is not mistaken for the viewer's local zone.
+      const time = commit.timestamp.slice(0, 16).replace('T', ' ') +
+        ' ' + commit.timestamp.slice(19);
       lines.push('- ' + escapeMarkdown(commit.subject) + ' — ' + time + ' (' + commit.sha.slice(0, 7) + ')');
     }
     if (top !== null && repo.commits.length > top) {
