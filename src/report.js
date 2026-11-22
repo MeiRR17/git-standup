@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { dailyMarkdown } from './daily.js';
 
 const MAX_REPOSITORIES = 120;
+const MAX_WORKSPACE_DIRECTORIES = 10_000;
 const MAX_COMMITS_PER_REPO = 2000;
 const SEP = '\x1f';
 const END = '\x1e';
@@ -19,26 +20,42 @@ function git(cwd, args) {
   return result.stdout.trim();
 }
 
-/** Look for repos in the specified directory and its immediate children. */
-export function discoverRepos(root) {
+/** Discover local Git repositories up to depth levels below a workspace. */
+export function discoverRepos(root, { depth = 1 } = {}) {
+  if (!Number.isInteger(depth) || depth < 0 || depth > 8) {
+    throw new RangeError('Workspace depth must be an integer from 0 to 8.');
+  }
   const folder = resolve(root);
   if (!existsSync(folder) || !statSync(folder).isDirectory()) {
     throw new Error('Workspace directory does not exist: ' + folder);
   }
+  // Breadth-first traversal makes the depth cap predictable. Directory
+  // entries are sorted, so repository selection does not depend on the
+  // filesystem's enumeration order.
+  const queue = [{ directory: folder, level: 0 }];
   const paths = [];
-  if (existsSync(join(folder, '.git'))) paths.push(folder);
-  else {
-    const children = readdirSync(folder, { withFileTypes: true });
-    for (const child of children) {
-      if (!child.isDirectory() || child.name.startsWith('.') || child.name === 'node_modules') continue;
-      const candidate = join(folder, child.name);
-      if (existsSync(join(candidate, '.git'))) {
-        // Never silently drop repositories from an aggregate report.
-        if (paths.length >= MAX_REPOSITORIES) {
-          throw new RangeError('More than 120 repositories found; select a smaller workspace or use --repo.');
-        }
-        paths.push(candidate);
+  for (let index = 0; index < queue.length; index++) {
+    const { directory, level } = queue[index];
+    if (existsSync(join(directory, '.git'))) {
+      // A worktree's .git may be a file. Never walk inside a repository:
+      // nested submodules must be requested explicitly with --repo.
+      if (paths.length >= MAX_REPOSITORIES) {
+        throw new RangeError('More than 120 repositories found; select a smaller workspace or use --repo.');
       }
+      paths.push(directory);
+      continue;
+    }
+    if (level >= depth) continue;
+    const children = readdirSync(directory, { withFileTypes: true })
+      .filter(child => child.isDirectory() && !child.name.startsWith('.') && child.name !== 'node_modules')
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const child of children) {
+      // Dirent.isDirectory() excludes symbolic links: no accidental traversal
+      // outside the workspace and no symlink cycles. Fail closed on huge trees.
+      if (queue.length >= MAX_WORKSPACE_DIRECTORIES) {
+        throw new RangeError('More than 10,000 workspace directories found; reduce --depth or use --repo.');
+      }
+      queue.push({ directory: join(directory, child.name), level: level + 1 });
     }
   }
   return paths;
@@ -107,7 +124,7 @@ function parseLog(output) {
 
 /** Collect local Git commit metadata; no shell evaluation or network calls. */
 export function summarize(options = {}) {
-  const requested = options.repos?.length ? options.repos.map(x => resolve(x)) : discoverRepos(options.root ?? process.cwd());
+  const requested = options.repos?.length ? options.repos.map(x => resolve(x)) : discoverRepos(options.root ?? process.cwd(), { depth: options.depth ?? 1 });
   const roots = [...new Set(requested)];
   if (roots.length > MAX_REPOSITORIES) throw new Error('At most 120 repositories can be scanned.');
   if (!roots.length) throw new Error('No Git repositories found. Use --root or --repo to specify locations.');

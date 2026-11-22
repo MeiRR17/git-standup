@@ -11,7 +11,8 @@ const HELP = [
   'Usage: git-standup [options]',
   '',
   'Repository selection:',
-  '  --root PATH          Look for Git repositories in PATH and immediate children',
+  '  --root PATH          Look for Git repositories in PATH and nested directories',
+  '  --depth N            Traverse N directory levels below root (0–8, default 1)',
   '  --repo PATH          Include a specific repository (repeatable)',
   '',
   'Date range (local calendar):',
@@ -42,6 +43,7 @@ const HELP = [
   'Examples:',
   '  git-standup --root ~/code',
   '  git-standup --root ~/code --days 7',
+  '  git-standup --root ~/code --depth 3 --days 7',
   '  git-standup --root ~/code --days 7 --daily --top 5',
   '  git-standup --root ~/code --days 7 --csv --daily --output activity.csv',
   '  git-standup --root ~/code --days 7 --counts-only --daily',
@@ -65,6 +67,11 @@ function parseOptions(args) {
     if (flag === '-h' || flag === '--help') options.help = true;
     else if (flag === '--root') options.root = take(i++, flag);
     else if (flag === '--repo') options.repos.push(take(i++, flag));
+    else if (flag === '--depth') {
+      const raw = take(i++, flag);
+      if (!/^[0-8]$/.test(raw)) throw new Error('--depth must be an integer 0–8.');
+      options.depth = Number(raw);
+    }
     else if (flag === '--author') options.author = take(i++, flag);
     else if (flag === '--all-authors') options.allAuthors = true;
     else if (flag === '--include-merges') options.includeMerges = true;
@@ -96,6 +103,7 @@ function parseOptions(args) {
   if (options.author && options.allAuthors) throw new Error('Choose --author or --all-authors, not both.');
   if (options.today && options.until) throw new Error('Cannot combine --today and --until.');
   if (options.root && options.repos.length) throw new Error('Choose --root or explicit --repo entries, not both.');
+  if (options.depth !== undefined && options.repos.length) throw new Error('--depth applies to workspace discovery, not explicit --repo paths.');
   if (options.json && (options.csv || options.countsOnly)) {
     throw new Error('--json cannot be combined with --csv or --counts-only.');
   }

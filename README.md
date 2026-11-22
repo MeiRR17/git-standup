@@ -15,6 +15,7 @@ Run this project directly from its checkout:
     node bin/git-standup.js --help
     node bin/git-standup.js --root ~/code
     node bin/git-standup.js --root ~/code --days 7
+    node bin/git-standup.js --root ~/code --depth 3 --days 7
     node bin/git-standup.js --root ~/code --today
     node bin/git-standup.js --root ~/code --days 7 --daily --top 5
     node bin/git-standup.js --root ~/code --days 7 --csv --daily --output activity.csv
@@ -28,7 +29,7 @@ Run this project directly from its checkout:
 
 You can also run the CLI through an npm link from a checkout, or use the published package metadata as the basis for a future npm release. This project is **not claimed to be published on npm**.
 
-If you run it without options, it searches the current working directory and its immediate children for Git repositories.
+If you run it without options, it searches the current working directory and its immediate children for Git repositories. Use `--depth 2` or `--depth 3` to include repositories nested further inside a workspace (for example, `~/code/work/client/project`). `--depth 0` checks only the root, and the default remains `1` for compatibility. Depth is capped at eight levels. Hidden directories, `node_modules` and directory symlinks are skipped; a discovered Git repository is treated as one project rather than traversing its nested submodules. Discovery refuses workspaces exceeding 10,000 traversed directories or 120 repositories instead of silently reporting partial results.
 
 ## Output
 
@@ -49,7 +50,8 @@ The output file is created only when it does not already exist, protecting previ
 
 ## Options
 
-- `--root PATH`: scan a Git repository or a workspace containing Git repositories as direct children.
+- `--root PATH`: scan a Git repository or a workspace containing nested Git repositories.
+- `--depth N`: scan up to N child-directory levels below the workspace root (0–8, default 1). Not valid with explicit `--repo` paths.
 - `--repo PATH`: include a specific repository; this option can be repeated.
 - `--today`: local calendar day so far.
 - `--days N`: previous N complete local calendar days, excluding today (default N=1, meaning yesterday).
