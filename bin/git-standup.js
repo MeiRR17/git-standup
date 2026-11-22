@@ -2,7 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { summarize, renderMarkdown } from '../src/report.js';
 import { dailyBreakdown } from '../src/daily.js';
-import { standupToCsv } from '../src/csv.js';
+import { standupToCsv, standupTypesToCsv } from '../src/csv.js';
 import { countsOnlySummary } from '../src/summary.js';
 
 const HELP = [
@@ -29,7 +29,7 @@ const HELP = [
   '',
   'Output:',
   '  --json               Print structured JSON instead of Markdown',
-  '  --csv                Export complete counts-only CSV (fails on partial scans)',
+  '  --csv                Export complete counts CSV; with --counts-only --by-type, export categories',
   '  --counts-only        Export complete counts-only JSON, without commit metadata',
   '  --by-type            With --counts-only, group commits by Conventional Commit type',
   '                       Combine with --daily for per-day counts by type',
@@ -47,6 +47,7 @@ const HELP = [
   '  git-standup --root ~/code --days 7 --counts-only --daily',
   '  git-standup --root ~/code --days 7 --counts-only --by-type',
   '  git-standup --root ~/code --days 7 --counts-only --by-type --daily',
+  '  git-standup --root ~/code --days 7 --counts-only --by-type --csv --daily',
   '  git-standup --repo ~/code/app --repo ~/code/docs --today',
   '  git-standup --root ~/code --since 2026-11-01 --until 2026-11-20 --json',
 ].join('\n');
@@ -95,9 +96,11 @@ function parseOptions(args) {
   if (options.author && options.allAuthors) throw new Error('Choose --author or --all-authors, not both.');
   if (options.today && options.until) throw new Error('Cannot combine --today and --until.');
   if (options.root && options.repos.length) throw new Error('Choose --root or explicit --repo entries, not both.');
-  if (Number(Boolean(options.json)) + Number(Boolean(options.csv)) +
-      Number(Boolean(options.countsOnly)) > 1) {
-    throw new Error('Choose only one of --json, --csv, or --counts-only.');
+  if (options.json && (options.csv || options.countsOnly)) {
+    throw new Error('--json cannot be combined with --csv or --counts-only.');
+  }
+  if (options.csv && options.countsOnly && !options.byType) {
+    throw new Error('--csv with --counts-only requires --by-type.');
   }
   if (options.byType && !options.countsOnly) {
     throw new Error('--by-type requires --counts-only.');
@@ -118,7 +121,8 @@ try {
     if (!report.complete && !opts.requireComplete) {
       process.stderr.write('git-standup: warning: scan incomplete; counts may be partial. Use --require-complete to fail closed.\n');
     }
-    const result = opts.csv ? standupToCsv(report, { daily: Boolean(opts.daily) }) :
+    const result = opts.csv && opts.countsOnly ? standupTypesToCsv(report) :
+      opts.csv ? standupToCsv(report, { daily: Boolean(opts.daily) }) :
       opts.countsOnly ? JSON.stringify(countsOnlySummary(report, { byType: Boolean(opts.byType) }), null, 2) + '\n' :
       opts.json ? JSON.stringify(report, null, 2) + '\n' :
       renderMarkdown(report, { top: opts.top ?? null });

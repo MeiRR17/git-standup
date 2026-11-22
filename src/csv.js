@@ -7,6 +7,8 @@
  * --daily mode emits a rectangular local-calendar-day x repository dataset,
  * including days without activity so spreadsheet comparisons are honest.
  */
+import { countsOnlySummary } from './summary.js';
+
 const MAX_REPOS = 120;
 const MAX_DAYS = 366;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -83,6 +85,41 @@ export function standupToCsv(report, { daily = false } = {}) {
         if (counts.has(day)) counts.set(day, counts.get(day) + 1);
       }
       for (const day of days) lines.push(row([day, repo.name, counts.get(day)]));
+    }
+  }
+  return '\uFEFF' + lines.join('\r\n') + '\r\n';
+}
+
+
+/**
+ * Type breakdown for complete local scans, suitable for spreadsheet pivots.
+ * Overall, repository and optional daily aggregate records share a fixed
+ * schema; the daily rows summarize all repositories, not individual repos.
+ * Every type/count comes from the redacted countsOnlySummary projection.
+ */
+export function standupTypesToCsv(report) {
+  const summary = countsOnlySummary(report, { byType: true });
+  const types = Object.keys(summary.byType);
+  const header = ['record_kind', 'date', 'repository', 'commits', ...types];
+  const lines = [row(header)];
+  const checked = (counts, expected) => {
+    if (!counts || types.some(type => !Number.isSafeInteger(counts[type]) ||
+        counts[type] < 0) ||
+        types.reduce((sum, type) => sum + counts[type], 0) !== expected) {
+      throw new TypeError('Conventional Commit categories do not reconcile.');
+    }
+    return types.map(type => counts[type]);
+  };
+  lines.push(row(['total', '', '', summary.total,
+    ...checked(summary.byType, summary.total)]));
+  for (const repo of summary.repositories) {
+    lines.push(row(['repository', '', repo.name, repo.commits,
+      ...checked(repo.byType, repo.commits)]));
+  }
+  if (summary.daily) {
+    for (const day of summary.daily) {
+      lines.push(row(['day', day.date, '', day.commits,
+        ...checked(day.byType, day.commits)]));
     }
   }
   return '\uFEFF' + lines.join('\r\n') + '\r\n';
